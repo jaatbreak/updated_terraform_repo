@@ -1,0 +1,129 @@
+# Define the image and services to be used in the pipeline
+image: ubuntu:latest
+
+#========================================================================================================
+variables:
+  TF_VERSION: ${TF_VERSION}
+  AWS_REGION: ${AWS_DEFAULT_REGION}
+  S3_BACKEND_BUCKET: ${S3_BACKEND_BUCKET}
+  S3_BACKEND_KEY: ${S3_BACKEND_KEY}
+
+cache:
+  paths:
+    - .terraform/
+    - .terraform.lock.hcl
+
+#======================================================================================================
+
+before_script:
+  - apt-get update && apt-get install -y unzip curl wget 
+  - wget https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_linux_amd64.zip
+  - unzip terraform_${TF_VERSION}_linux_amd64.zip
+  - mv terraform /usr/local/bin/
+  - terraform --version
+  - curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+  - unzip awscliv2.zip
+  - ./aws/install
+  - aws --version
+  - wget -O tflint.zip https://github.com/terraform-linters/tflint/releases/download/v0.34.1/tflint_linux_amd64.zip
+  - unzip tflint.zip -d /usr/local/bin/
+  - tflint --version
+  # Configure AWS credentials using GitLab CI/CD environment variables
+  - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY}
+  - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
+  - export AWS_REGION=${AWS_DEFAULT_REGION}
+  # Ensure tflint is explicitly configured to avoid deprecation warnings
+  - echo 'plugin "aws" { enabled = true }' > .tflint.hcl
+
+# Stages
+# ==============================================================================================================================================
+stages:
+  - validate
+  - plan
+  - apply
+  - destroy
+
+#----------------------------------------------------------------------------------------------------------------------------------------------
+# Common Configuration for Terraform jobs
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+.validate: &validate
+  script:
+    - terraform init
+    - terraform validate
+
+.lint: &lint
+  script:
+    - terraform fmt -recursive
+    - tflint
+
+.common_plan_prod: &common_plan_prod
+  script:
+    - terraform init
+    - terraform workspace select $PROD_ENVIRONMENT_NAME || terraform workspace new $PROD_ENVIRONMENT_NAME
+    - terraform plan -var-file=variables/prod-terraform.tfvars -out=tfplan
+  artifacts:
+    paths:
+      - tfplan
+
+.common_apply_prod: &common_apply_prod
+  script:
+    - terraform workspace select $PROD_ENVIRONMENT_NAME || terraform workspace new $PROD_ENVIRONMENT_NAME
+    - terraform apply -auto-approve tfplan
+
+.common_destroy_plan_prod: &common_destroy_plan_prod
+  script:
+    - terraform workspace select $PROD_ENVIRONMENT_NAME || terraform workspace new $PROD_ENVIRONMENT_NAME
+    - terraform plan -destroy -var-file=variables/prod-terraform.tfvars -out=tfplan
+  artifacts:
+    paths:
+      - tfplan
+
+.common_destroy_prod: &common_destroy_prod
+  script:
+    - terraform workspace select $PROD_ENVIRONMENT_NAME || terraform workspace new $PROD_ENVIRONMENT_NAME
+    - terraform destroy -auto-approve -var-file=variables/prod-terraform.tfvars
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Jobs Configuration
+# ----------------------------------------------------------------------------------------------------------------------------------------------
+# Validation Stage
+Validate:
+  extends: .validate
+  stage: validate
+
+Lint:
+  extends: .lint
+  stage: validate
+
+# Plan Stage
+Plan[Prod]:
+  extends: .common_plan_prod
+  stage: plan
+  needs:
+    - Validate
+
+# Apply Stage (manual trigger)
+Apply[Prod]:
+  extends: .common_apply_prod
+  stage: apply
+  needs:
+    - Plan[Prod]
+  when: manual  # Manual approval required to apply changes
+
+# Destroy Plan Stage (manual trigger)
+DestroyPlan[Prod]:
+  extends: .common_destroy_plan_prod
+  stage: destroy
+  needs:
+    - Apply[Prod]
+  when: manual  # Manual approval required to plan destruction
+
+# Destroy Stage (manual trigger)
+Destroy[Prod]:
+  extends: .common_destroy_prod
+  stage: destroy
+  needs:
+    - DestroyPlan[Prod]
+  when: manual  # Manual approval required to destroy infrastructure
+
+# =======================================================================================================
