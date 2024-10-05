@@ -2,8 +2,11 @@ provider "aws" {
   region = var.aws_region
 }
 
+resource "random_id" "random_suffix" {
+  byte_length = 3  # Generates 3 random bytes, which will be converted to a 6-character hex string
+}
 resource "aws_secretsmanager_secret" "prod_secret" {
-  name        = var.secret_name
+  name        = "${var.secret_name}-${random_id.random_suffix.hex}"
   description = "Secrets for production environment"
 }
 
