@@ -31,26 +31,26 @@ module "security_groups" {
 module "secret" {
   source = "./modules/secret"
   secret_name = var.secret_name
-  django_private_key = var.django_private_key
-  django_field_encryption_key = var.django_field_encryption_key
-  saml_x509_certificate = var.saml_x509_certificate
-  eve_user_access_key_id = var.eve_user_access_key_id
-  eve_user_secret_access_key = var.eve_user_secret_access_key
-  postgres_password = var.postgres_password
-  ac_key = var.ac_key 
+  # django_private_key = var.django_private_key
+  # django_field_encryption_key = var.django_field_encryption_key
+  # saml_x509_certificate = var.saml_x509_certificate
+  # eve_user_access_key_id = var.eve_user_access_key_id
+  # eve_user_secret_access_key = var.eve_user_secret_access_key
+  # postgres_password = var.postgres_password
+  # ac_key = var.ac_key 
 }
 
 module "aws_db_instance" {
   source = "./modules/aws_rds"
-  subnet_group_name = var.subnet_group_name_elastic
-  subnet_ids = var.subnet_ids_elastic
+  subnet_group_name = var.subnet_group_name_rds
+  subnet_ids = var.subnet_ids
   db_instance_name = var.db_instance_name
   username   = var.username
   instance_class = var.instance_class
   allocated_storage  = var.allocated_storage
   engine_version = var.engine_version_rds
   vpc_security_group_ids = [module.security_groups.postgres_sg_id]
-  secret_arn  = module.secret.secret_arn
+  secret_arn = var.secret_arn
 }
 
 module "aws_elasticache_cluster" {
@@ -61,11 +61,11 @@ module "aws_elasticache_cluster" {
   parameter_group_name  = var.parameter_group_name
   num_cache_nodes  = var.num_cache_nodes
   port  = var.port
-  subnet_group_name = var.subnet_group_name
+  subnet_group_name = var.subnet_group_name_elastic
   auto_failover  = var.auto_failover
   transit_encryption_enabled  = var.transit_encryption_enabled
   at_rest_encryption_enabled  = var.at_rest_encryption_enabled
-  subnet_ids  = var.subnet_ids
+  subnet_ids  = var.subnet_ids_cache
   vpc_security_group_ids = [module.security_groups.redis_sg_id]
   
 }
